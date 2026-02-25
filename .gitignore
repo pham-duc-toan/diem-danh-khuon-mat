@@ -1,0 +1,21 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+
+# Uploads
+Backend/Uploads/
+
+# Node
+node_modules/
+dist/
+.env
+
+# IDE
+.vs/
+.vscode/
+*.swp
