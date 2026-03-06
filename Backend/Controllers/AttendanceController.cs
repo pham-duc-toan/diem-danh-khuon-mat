@@ -22,7 +22,7 @@ public class AttendanceController : ControllerBase
   }
 
   /// <summary>
-  /// Check in a student via face recognition
+  /// Manual check-in (admin override only). Face-verified check-in goes through SignalR FaceHub.
   /// </summary>
   [HttpPost("checkin")]
   public async Task<IActionResult> CheckIn([FromBody] AttendanceCheckInDto dto)

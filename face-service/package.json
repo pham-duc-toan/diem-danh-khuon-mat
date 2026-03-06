@@ -1,0 +1,16 @@
+{
+  "name": "face-service",
+  "version": "1.0.0",
+  "description": "Face detection microservice using face-api.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "4.17.0",
+    "@tensorflow/tfjs-core": "4.17.0",
+    "@tensorflow/tfjs-node": "4.17.0",
+    "@vladmandic/face-api": "^1.7.14",
+    "canvas": "^2.11.2",
+    "express": "^4.21.0"
+  }
+}

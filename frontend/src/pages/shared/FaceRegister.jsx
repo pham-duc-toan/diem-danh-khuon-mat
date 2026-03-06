@@ -1,12 +1,10 @@
-import { useRef, useEffect, useState, useCallback } from "react";
-import * as faceapi from "face-api.js";
+import { useRef, useEffect, useState } from "react";
 import {
   Button,
   Card,
   Select,
   Space,
   message,
-  Spin,
   Alert,
   List,
   Typography,
@@ -18,19 +16,16 @@ import { useAuth } from "../../contexts/AuthContext";
 export default function FaceRegister() {
   const { user } = useAuth();
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [capturing, setCapturing] = useState(false);
-  const [capturedDescriptors, setCapturedDescriptors] = useState([]);
+  const [capturedCount, setCapturedCount] = useState(0);
   const streamRef = useRef(null);
 
   const isAdmin = user?.role === "Admin";
 
   useEffect(() => {
-    loadModels();
     if (isAdmin) {
       loadStudents();
     } else {
@@ -38,23 +33,6 @@ export default function FaceRegister() {
     }
     return () => stopCamera();
   }, []);
-
-  const loadModels = async () => {
-    try {
-      const MODEL_URL = "/models";
-      await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ]);
-      setModelsLoaded(true);
-    } catch (err) {
-      console.error("Error loading models:", err);
-      message.error(
-        "Lỗi khi tải model nhận diện khuôn mặt. Hãy đảm bảo đã tải model vào thư mục public/models/",
-      );
-    }
-  };
 
   const loadStudents = async () => {
     try {
@@ -88,76 +66,32 @@ export default function FaceRegister() {
     setCameraActive(false);
   };
 
-  const captureDescriptor = async () => {
-    if (!videoRef.current || !modelsLoaded) return;
+  const captureFace = async () => {
+    if (!videoRef.current) return;
 
     setCapturing(true);
     try {
-      const detection = await faceapi
-        .detectSingleFace(videoRef.current)
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-
-      if (!detection) {
-        message.warning(
-          "Không phát hiện khuôn mặt. Hãy nhìn thẳng vào camera.",
-        );
-        setCapturing(false);
-        return;
-      }
-
-      // Draw detection on canvas
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const dims = faceapi.matchDimensions(canvas, videoRef.current, true);
-        const resizedDetection = faceapi.resizeResults(detection, dims);
-        canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-        faceapi.draw.drawDetections(canvas, [resizedDetection]);
-        faceapi.draw.drawFaceLandmarks(canvas, [resizedDetection]);
-      }
-
-      const descriptor = Array.from(detection.descriptor);
-      setCapturedDescriptors((prev) => [...prev, descriptor]);
-      message.success(`Đã chụp mẫu ${capturedDescriptors.length + 1}`);
-    } catch (err) {
-      message.error("Lỗi khi nhận diện");
-    } finally {
-      setCapturing(false);
-    }
-  };
-
-  const saveDescriptors = async () => {
-    if (capturedDescriptors.length === 0) {
-      message.warning("Chưa có mẫu nào được chụp");
-      return;
-    }
-
-    if (!selectedStudent) {
-      message.warning("Vui lòng chọn sinh viên");
-      return;
-    }
-
-    try {
-      // Get a snapshot image from video
+      // Capture frame as base64
       const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = videoRef.current.videoWidth;
-      tempCanvas.height = videoRef.current.videoHeight;
+      tempCanvas.width = videoRef.current.videoWidth || 640;
+      tempCanvas.height = videoRef.current.videoHeight || 480;
       tempCanvas.getContext("2d").drawImage(videoRef.current, 0, 0);
       const imageBase64 = tempCanvas.toDataURL("image/jpeg", 0.8);
 
-      // Save each descriptor
-      for (const descriptor of capturedDescriptors) {
-        await api.post("/facedata", {
-          studentId: selectedStudent,
-          faceDescriptor: JSON.stringify(descriptor),
-          imageBase64,
-        });
-      }
+      // Send image to backend - backend will detect face and extract descriptor
+      await api.post("/facedata/register", {
+        studentId: selectedStudent,
+        imageBase64,
+      });
 
-      message.success(`Đã lưu ${capturedDescriptors.length} mẫu khuôn mặt`);
-      setCapturedDescriptors([]);
+      setCapturedCount((prev) => prev + 1);
+      message.success(`Đã chụp và lưu mẫu ${capturedCount + 1}`);
     } catch (err) {
-      message.error(err.response?.data?.message || "Lỗi khi lưu");
+      message.error(
+        err.response?.data?.message || "Lỗi khi chụp mẫu khuôn mặt",
+      );
+    } finally {
+      setCapturing(false);
     }
   };
 
@@ -165,23 +99,16 @@ export default function FaceRegister() {
     <div>
       <h2>Đăng ký khuôn mặt</h2>
 
-      {!modelsLoaded && (
-        <Alert
-          message="Đang tải model nhận diện..."
-          description="Vui lòng đợi trong giây lát. Nếu lỗi, hãy đảm bảo đã tải model files vào public/models/"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
         <Card style={{ flex: "1 1 500px" }}>
           {isAdmin && (
             <Select
               style={{ width: "100%", marginBottom: 16 }}
               placeholder="Chọn sinh viên"
-              onChange={setSelectedStudent}
+              onChange={(val) => {
+                setSelectedStudent(val);
+                setCapturedCount(0);
+              }}
               value={selectedStudent}
               showSearch
               optionFilterProp="children"
@@ -205,17 +132,6 @@ export default function FaceRegister() {
                 maxWidth: 640,
                 borderRadius: 8,
                 background: "#000",
-                display: cameraActive ? "block" : "none",
-              }}
-            />
-            <canvas
-              ref={canvasRef}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                maxWidth: 640,
                 display: cameraActive ? "block" : "none",
               }}
             />
@@ -245,7 +161,6 @@ export default function FaceRegister() {
                 type="primary"
                 icon={<CameraOutlined />}
                 onClick={startCamera}
-                disabled={!modelsLoaded}
               >
                 Bật Camera
               </Button>
@@ -255,20 +170,11 @@ export default function FaceRegister() {
                 <Button
                   type="primary"
                   icon={<CameraOutlined />}
-                  onClick={captureDescriptor}
+                  onClick={captureFace}
                   loading={capturing}
                   disabled={!selectedStudent}
                 >
-                  Chụp mẫu ({capturedDescriptors.length}/5)
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<UserAddOutlined />}
-                  onClick={saveDescriptors}
-                  disabled={capturedDescriptors.length === 0}
-                  style={{ background: "#52c41a", borderColor: "#52c41a" }}
-                >
-                  Lưu dữ liệu
+                  Chụp mẫu ({capturedCount}/5)
                 </Button>
               </>
             )}
@@ -283,13 +189,13 @@ export default function FaceRegister() {
               "2. Bật camera và nhìn thẳng vào camera",
               "3. Chụp ít nhất 3-5 mẫu khuôn mặt",
               "4. Xoay nhẹ đầu giữa mỗi lần chụp",
-              '5. Nhấn "Lưu dữ liệu" để hoàn tất',
+              "5. Mỗi lần chụp sẽ tự động lưu vào hệ thống",
             ]}
             renderItem={(item) => <List.Item>{item}</List.Item>}
           />
-          {capturedDescriptors.length > 0 && (
+          {capturedCount > 0 && (
             <Alert
-              message={`Đã chụp ${capturedDescriptors.length} mẫu`}
+              message={`Đã chụp và lưu ${capturedCount} mẫu`}
               type="success"
               style={{ marginTop: 16 }}
             />

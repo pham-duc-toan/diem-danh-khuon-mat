@@ -1,5 +1,6 @@
 using System.Text;
 using Backend.Data;
+using Backend.Hubs;
 using Backend.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -26,12 +27,42 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
         };
+
+        // Allow JWT token from query string for SignalR WebSocket connections
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
 
 // Services
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<AttendanceSessionTracker>();
+
+// Face detection service (calls Node.js face-service)
+var faceServiceUrl = builder.Configuration["FaceService:Url"] ?? "http://localhost:5050";
+builder.Services.AddHttpClient<FaceDetectionService>(client =>
+{
+    client.BaseAddress = new Uri(faceServiceUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
+// SignalR
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10MB for base64 images
+});
 
 // Controllers
 builder.Services.AddControllers();
@@ -78,5 +109,8 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Map SignalR hubs
+app.MapHub<FaceHub>("/hubs/face");
 
 app.Run();

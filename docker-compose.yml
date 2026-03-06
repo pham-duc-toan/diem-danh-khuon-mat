@@ -19,5 +19,21 @@ services:
       timeout: 5s
       retries: 5
 
+  face-service:
+    build: ./face-service
+    container_name: face_service
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      PORT: 5050
+      MODEL_PATH: /app/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5050/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 volumes:
   postgres_data:

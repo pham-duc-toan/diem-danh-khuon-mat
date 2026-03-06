@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Backend.Data;
 using Backend.Models;
 using Backend.Models.DTOs;
+using Backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,11 +16,13 @@ public class FaceDataController : ControllerBase
 {
   private readonly AppDbContext _context;
   private readonly IWebHostEnvironment _env;
+  private readonly FaceDetectionService _faceDetection;
 
-  public FaceDataController(AppDbContext context, IWebHostEnvironment env)
+  public FaceDataController(AppDbContext context, IWebHostEnvironment env, FaceDetectionService faceDetection)
   {
     _context = context;
     _env = env;
+    _faceDetection = faceDetection;
   }
 
   /// <summary>
@@ -84,6 +88,52 @@ public class FaceDataController : ControllerBase
     {
       StudentId = dto.StudentId,
       FaceDescriptor = dto.FaceDescriptor,
+      ImagePath = imagePath,
+      CreatedAt = DateTime.UtcNow
+    };
+
+    _context.FaceDataSet.Add(faceData);
+    await _context.SaveChangesAsync();
+
+    return Ok(new FaceDataDto
+    {
+      Id = faceData.Id,
+      StudentId = faceData.StudentId,
+      StudentName = student.FullName,
+      FaceDescriptor = faceData.FaceDescriptor,
+      ImagePath = faceData.ImagePath,
+      CreatedAt = faceData.CreatedAt
+    });
+  }
+
+  /// <summary>
+  /// Register face from image - backend detects face and extracts descriptor via face-service.
+  /// </summary>
+  [HttpPost("register")]
+  public async Task<IActionResult> RegisterFace([FromBody] FaceRegisterDto dto)
+  {
+    var student = await _context.Users.FindAsync(dto.StudentId);
+    if (student == null || student.Role != UserRole.Student)
+      return BadRequest(new { message = "Sinh viên không tồn tại" });
+
+    // Call face-service to detect face and extract descriptor
+    var detectedFaces = await _faceDetection.DetectFacesAsync(dto.ImageBase64);
+    if (detectedFaces.Count == 0)
+      return BadRequest(new { message = "Không phát hiện khuôn mặt trong ảnh. Hãy nhìn thẳng vào camera." });
+
+    if (detectedFaces.Count > 1)
+      return BadRequest(new { message = "Phát hiện nhiều hơn 1 khuôn mặt. Hãy đảm bảo chỉ có 1 người trong khung hình." });
+
+    var face = detectedFaces[0];
+    if (face.Descriptor.Length != 128)
+      return BadRequest(new { message = "Không thể trích xuất đặc trưng khuôn mặt. Hãy thử lại." });
+
+    string? imagePath = await SaveImage(dto.ImageBase64, $"face_{dto.StudentId}_{DateTime.UtcNow:yyyyMMddHHmmss}");
+
+    var faceData = new FaceData
+    {
+      StudentId = dto.StudentId,
+      FaceDescriptor = JsonSerializer.Serialize(face.Descriptor),
       ImagePath = imagePath,
       CreatedAt = DateTime.UtcNow
     };

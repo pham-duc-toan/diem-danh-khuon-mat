@@ -117,6 +117,12 @@ public class FaceDataCreateDto
   public string? ImageBase64 { get; set; }
 }
 
+public class FaceRegisterDto
+{
+  [Required] public int StudentId { get; set; }
+  [Required] public string ImageBase64 { get; set; } = string.Empty;
+}
+
 public class FaceDataDto
 {
   public int Id { get; set; }
